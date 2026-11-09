@@ -1,0 +1,12 @@
+streamlit
+tensorflow
+keras
+numpy
+pandas
+opencv-python-headless
+pillow
+altair
+scikit-learn
+fpdf2
+openpyxl
+gdown
