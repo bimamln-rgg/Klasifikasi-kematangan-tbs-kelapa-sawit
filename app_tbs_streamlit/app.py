@@ -193,11 +193,22 @@ def build_model():
 
 @st.cache_resource
 def load_tbs_model():
-    if not os.path.exists(MODEL_PATH):
+    # Pastikan file ada DAN ukurannya valid (bukan 0 bytes / file rusak)
+    if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 100_000_000:
         with st.spinner("📥 Memuat model AI dari cloud storage..."):
             url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
-            gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
-            
+            try:
+                # Opsi 1: gdown
+                gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
+            except Exception:
+                pass
+
+            # Opsi 2: urllib jika gdown terhalang rate limit
+            if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 100_000_000:
+                import urllib.request
+                alt_url = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}&confirm=t"
+                urllib.request.urlretrieve(alt_url, MODEL_PATH)
+
     model = build_model()
     model.load_weights(MODEL_PATH)
     return model
@@ -324,7 +335,7 @@ def render_single(image, name, key, source, model, cfg):
 
     if is_ood:
         a, b = st.columns([1, 2])
-        a.image(image, caption="Citra yang diunggah", use_container_width=True)
+        a.image(image, caption="Citra yang diunggah", width="stretch")
         b.error("⚠️ **Gambar yang diunggah bukan Tandan Buah Segar (TBS) Kelapa Sawit.**\n\n"
                 "Sistem mengidentifikasi objek luar domain (seperti pakaian, kendaraan, atau latar umum).\n"
                 "Silakan unggah foto TBS Kelapa Sawit yang jelas, utuh, dan memiliki pencahayaan memadai.")
@@ -360,9 +371,9 @@ def render_single(image, name, key, source, model, cfg):
                 '<div class="sub">Area berwarna hangat adalah bagian citra yang paling memengaruhi keputusan model.</div>',
                 unsafe_allow_html=True)
     v1, v2, v3 = st.columns(3)
-    v1.image(image, caption="Citra asli", use_container_width=True)
-    v2.image(heat_rgb, caption=f"Heatmap Grad-CAM ({cmap_name})", use_container_width=True)
-    v3.image(over_rgb, caption=f"Overlay fokus ({label})", use_container_width=True)
+    v1.image(image, caption="Citra asli", width="stretch")
+    v2.image(heat_rgb, caption=f"Heatmap Grad-CAM ({cmap_name})", width="stretch")
+    v3.image(over_rgb, caption=f"Overlay fokus ({label})", width="stretch")
 
     st.write("")
     d1, d2, _ = st.columns([1, 1, 2])
@@ -445,7 +456,7 @@ def page_home():
     st.markdown('<div class="sec">Metode yang digunakan</div>', unsafe_allow_html=True)
     meths = [("EfficientNet-B4", "CNN yang menyeimbangkan kedalaman, lebar, dan resolusi jaringan untuk mengekstraksi fitur warna dan tekstur TBS."),
              ("CBAM", "Convolutional Block Attention Module menambahkan perhatian channel dan spasial agar model fokus pada fitur penting."),
-             ("Grad-CAM", "Teknik explainable AI yang menampilkan area citra paling berpengaruh terhadap prediksi.")]
+             ("Grad-CAM", "Teknik explainable AI yang menampilkan area citra paling berpengaruh terhadap keputusan model.")]
     for col, (t, d) in zip(st.columns(3, gap="large"), meths):
         col.markdown(html(f'<div class="meth"><h4>{t}</h4><p>{d}</p></div>'), unsafe_allow_html=True)
 
@@ -513,7 +524,7 @@ def page_classify():
         df = st.session_state.get("batch_df")
         if df is not None and not df.empty:
             st.markdown('<div class="sec" style="margin-top:20px">Hasil batch</div>', unsafe_allow_html=True)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
             st.bar_chart(df["Kelas"].value_counts())
             e1, e2, _ = st.columns([1, 1, 2])
             e1.download_button("⬇️ Unduh CSV", df.to_csv(index=False).encode("utf-8"), "hasil_batch.csv", "text/csv")
@@ -565,12 +576,12 @@ def page_eval():
     text = base.mark_text(fontSize=16, fontWeight="bold").encode(
         text="Jumlah:Q",
         color=alt.condition(alt.datum.Jumlah > df["Jumlah"].max() / 2, alt.value("white"), alt.value("#0f3d2a")))
-    st.altair_chart((heat + text).properties(height=360), use_container_width=True)
+    st.altair_chart((heat + text).properties(height=360), width="stretch")
 
     st.markdown('<div class="sec" style="margin-top:20px">Metrik per Kelas</div>', unsafe_allow_html=True)
     st.dataframe(pd.DataFrame({
         "Kelas": CLASS_NAMES, "Precision": np.round(prec, 4), "Recall": np.round(rec, 4),
-        "F1-score": np.round(f1, 4), "Jumlah data uji": cm.sum(1)}), use_container_width=True, hide_index=True)
+        "F1-score": np.round(f1, 4), "Jumlah data uji": cm.sum(1)}), width="stretch", hide_index=True)
 
 
 def page_history():
@@ -586,7 +597,7 @@ def page_history():
     k2.metric("Terdeteksi TBS", int((df["Kelas"] != "Bukan TBS").sum()))
     k3.metric("Bukan TBS", int((df["Kelas"] == "Bukan TBS").sum()))
     c1, c2 = st.columns([1.6, 1], gap="large")
-    c1.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
+    c1.dataframe(df.iloc[::-1], width="stretch", hide_index=True)
     c2.caption("Jumlah per kelas")
     c2.bar_chart(df["Kelas"].value_counts())
     b1, b2, _ = st.columns([1, 1, 2])
