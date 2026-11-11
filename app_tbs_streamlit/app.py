@@ -202,7 +202,7 @@ def load_tbs_model():
         with st.spinner("📥 Memuat model AI dari cloud storage... Sila tunggu sebentar."):
             url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
             try:
-                gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
+                gdown.download(url, MODEL_PATH, quiet=False)
             except Exception as e:
                 st.error(f"Gagal mengunduh file model: {e}")
 
