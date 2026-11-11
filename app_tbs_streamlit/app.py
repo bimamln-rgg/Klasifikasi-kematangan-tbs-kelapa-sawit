@@ -1,3 +1,4 @@
+import gc
 import io
 import os
 import json
@@ -16,7 +17,7 @@ from PIL import Image
 from tensorflow.keras import layers
 
 # =====================================================================
-# 1. KONFIGURASI & DOWLOAD MODEL OTOMATIS
+# 1. KONFIGURASI HALAMAN & MEMORI
 # =====================================================================
 st.set_page_config(
     page_title="SawitScan - Klasifikasi Kematangan TBS Sawit",
@@ -25,7 +26,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ID File Google Drive kamu
+# Batasi alokasi RAM internal TensorFlow
+tf.config.set_visible_devices([], 'GPU')
+
 DRIVE_FILE_ID = "1qBOpW704HxPfnD8QLULZf0uc0GMyZsM4"
 MODEL_PATH = "best_efficientnet_b4_cbam_clean.h5"
 EVAL_PATH = "evaluasi.json"
@@ -139,7 +142,7 @@ section[data-testid="stFileUploaderDropzone"], [data-testid="stFileUploaderDropz
 
 
 # =====================================================================
-# 3. MODEL (EfficientNet-B4 + CBAM) & GRAD-CAM
+# 3. ARSITEKTUR MODEL (EfficientNet-B4 + CBAM)
 # =====================================================================
 @keras.saving.register_keras_serializable(package="tbs")
 class ChannelMean(layers.Layer):
@@ -190,11 +193,10 @@ def build_model():
 
 @st.cache_resource
 def load_tbs_model():
-    # Mengunduh otomatis dari Google Drive jika file belum ada
     if not os.path.exists(MODEL_PATH):
-        with st.spinner("📥 Mengunduh file bobot model dari Google Drive... (Hanya sekali saat startup awal)"):
+        with st.spinner("📥 Memuat model AI dari cloud storage..."):
             url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
-            gdown.download(url, MODEL_PATH, quiet=False)
+            gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
             
     model = build_model()
     model.load_weights(MODEL_PATH)
@@ -219,7 +221,7 @@ def generate_gradcam(img_array, model, pred_index=None):
 
 
 # =====================================================================
-# 4. FUNGSI BANTU & LAPORAN
+# 4. FUNGSI BANTU & PEMBERSIH MEMORI (GC)
 # =====================================================================
 def prep(image):
     resized = image.resize((IMG_SIZE, IMG_SIZE))
@@ -318,7 +320,6 @@ def render_single(image, name, key, source, model, cfg):
     top = float(sorted_probs[0]) * 100
     margin = float(sorted_probs[0] - sorted_probs[1]) * 100
 
-    # Gambar ditolak jika kepercayaan di bawah ambang (55%) atau margin kebingungan terlalu tipis (< 12%)
     is_ood = (top < thr) or (margin < 12.0 and top < 60.0)
 
     if is_ood:
@@ -327,12 +328,14 @@ def render_single(image, name, key, source, model, cfg):
         b.error("⚠️ **Gambar yang diunggah bukan Tandan Buah Segar (TBS) Kelapa Sawit.**\n\n"
                 "Sistem mengidentifikasi objek luar domain (seperti pakaian, kendaraan, atau latar umum).\n"
                 "Silakan unggah foto TBS Kelapa Sawit yang jelas, utuh, dan memiliki pencahayaan memadai.")
-        
         log_history(source, name, "Bukan TBS", None, key)
+        
+        gc.collect()
         return
 
     with st.spinner("🔬 Menghitung Grad-CAM..."):
         heatmap, idx = generate_gradcam(batch, model)
+        
     label, conf = CLASS_NAMES[int(idx)], float(probs[int(idx)]) * 100
     info = CLASS_INFO[label]
     heat_rgb, over_rgb = make_heat_images(resized, heatmap, cmap_name, alpha)
@@ -373,6 +376,8 @@ def render_single(image, name, key, source, model, cfg):
           "".join(f"- {n}: {p * 100:.2f}%\n" for n, p in zip(CLASS_NAMES, probs))
     d2.download_button("📥 Unduh Ringkasan (.txt)", txt, "Hasil_Klasifikasi_TBS.txt", key=f"txt-{key}")
 
+    gc.collect()
+
 
 def file_key(data):
     return hashlib.md5(data).hexdigest()
@@ -386,6 +391,7 @@ hb.markdown(html('<div class="brand"><div class="logo">🌴</div><div><b>SawitSc
                   '<small>EfficientNet-B4 · CBAM · Grad-CAM</small></div></div>'), unsafe_allow_html=True)
 hn.radio("Navigasi", PAGES, key="nav", horizontal=True, label_visibility="collapsed")
 st.markdown('<div class="navline"></div>', unsafe_allow_html=True)
+
 
 # =====================================================================
 # 6. HALAMAN APLIKASI
@@ -456,7 +462,6 @@ def page_classify():
         s1, s2, s3 = st.columns(3)
         cmap_name = s1.selectbox("Skema warna heatmap", ["JET", "VIRIDIS", "PLASMA"])
         alpha = s2.slider("Transparansi overlay", 0.1, 0.9, 0.4, 0.05)
-        # Ambang kepercayaan minimum default set di 55%
         thr = s3.slider("Ambang kepercayaan minimum (%)", 30, 99, 55, 1,
                         help="Di bawah ambang ini atau jika kebingungan model tinggi, gambar dianggap bukan TBS.")
     cfg = (cmap_name, alpha, thr)
@@ -503,6 +508,8 @@ def page_classify():
                 bar.progress((i + 1) / len(files), text=f"Memproses {i + 1}/{len(files)}")
             bar.empty()
             st.session_state.batch_df = pd.DataFrame(rows)
+            gc.collect()
+            
         df = st.session_state.get("batch_df")
         if df is not None and not df.empty:
             st.markdown('<div class="sec" style="margin-top:20px">Hasil batch</div>', unsafe_allow_html=True)
@@ -539,18 +546,6 @@ def page_eval():
         up = st.file_uploader("Unggah file evaluasi.json", type=["json"])
         if up:
             data = json.load(up)
-    with st.expander("Cara membuat evaluasi.json (jalankan di notebook training)", expanded=data is None):
-        st.code(
-            "import json, numpy as np\n"
-            "from sklearn.metrics import confusion_matrix\n\n"
-            "# y_true: label asli data uji (urutan kelas: Busuk, Matang, Mentah, Terlalu matang)\n"
-            "y_pred = np.argmax(model.predict(test_ds), axis=1)\n"
-            "cm = confusion_matrix(y_true, y_pred)\n"
-            "hist = {k: [float(v) for v in history.history[k]]\n"
-            "        for k in ['accuracy', 'val_accuracy', 'loss', 'val_loss'] if k in history.history}\n"
-            "json.dump({'confusion_matrix': cm.tolist(), 'history': hist}, open('evaluasi.json', 'w'))",
-            language="python")
-        st.caption("Simpan `evaluasi.json` di folder yang sama dengan `app.py`, lalu muat ulang halaman.")
     if data is None:
         return
 
@@ -576,22 +571,6 @@ def page_eval():
     st.dataframe(pd.DataFrame({
         "Kelas": CLASS_NAMES, "Precision": np.round(prec, 4), "Recall": np.round(rec, 4),
         "F1-score": np.round(f1, 4), "Jumlah data uji": cm.sum(1)}), use_container_width=True, hide_index=True)
-
-    hist = data.get("history")
-    if hist:
-        st.markdown('<div class="sec" style="margin-top:20px">Grafik Training</div>', unsafe_allow_html=True)
-        g1, g2 = st.columns(2)
-        acc_df = pd.DataFrame({k: v for k, v in hist.items() if "acc" in k})
-        loss_df = pd.DataFrame({k: v for k, v in hist.items() if "loss" in k})
-        if not acc_df.empty:
-            g1.caption("Akurasi per epoch")
-            g1.line_chart(acc_df)
-        if not loss_df.empty:
-            g2.caption("Loss per epoch")
-            g2.line_chart(loss_df)
-        if "accuracy" in hist and "val_accuracy" in hist:
-            gap = (hist["accuracy"][-1] - hist["val_accuracy"][-1]) * 100
-            st.caption(f"Selisih akurasi training vs validasi pada epoch terakhir: **{gap:.2f}%**")
 
 
 def page_history():
@@ -626,29 +605,31 @@ def page_guide():
         st.markdown("- Pastikan TBS terlihat **utuh** dan memenuhi sebagian besar frame.\n"
                     "- Gunakan **cahaya alami** yang merata, hindari bayangan keras dan cahaya belakang.\n"
                     "- Jaga kamera tetap **fokus dan stabil** agar tidak buram.\n"
-                    "- Hindari latar yang ramai atau banyak objek lain.\n"
-                    "- Gunakan resolusi minimal sekitar **224 × 224 piksel**.")
+                    "- Hindari latar yang ramai atau banyak objek lain.")
     with b:
         st.markdown("#### ⚠️ Batasan sistem")
         st.markdown("- Hanya untuk citra **TBS kelapa sawit**; gambar lain akan ditolak.\n"
-                    "- Akurasi **tidak 100%**; hasil adalah pendukung keputusan, bukan pengganti penilaian ahli.\n"
-                    "- Kondisi pencahayaan dan sudut yang jauh berbeda dari data latih dapat menurunkan akurasi.")
+                    "- Akurasi **tidak 100%**; hasil adalah pendukung keputusan, bukan pengganti penilaian ahli.")
     st.markdown("#### ❓ Pertanyaan umum")
-    faqs = [("Apa itu Grad-CAM?", "Teknik yang menampilkan heatmap area citra yang paling berpengaruh pada keputusan model. Warna hangat (merah/kuning) berarti pengaruh tinggi."),
-            ("Mengapa gambar saya dibilang bukan TBS?", "Model tidak cukup yakin bahwa gambar tersebut TBS sawit. Coba foto dengan pencahayaan lebih baik, atau turunkan ambang kepercayaan di pengaturan."),
-            ("Apa arti tingkat kepercayaan?", "Probabilitas tertinggi yang diberikan model untuk kelas yang dipilih. Nilai tinggi menunjukkan model lebih yakin."),
-            ("Apakah data saya disimpan?", "Tidak. Gambar hanya diproses pada sesi berjalan dan riwayat hanya ada di memori sesi.")]
+    faqs = [("Apa itu Grad-CAM?", "Teknik yang menampilkan heatmap area citra yang paling berpengaruh pada keputusan model."),
+            ("Mengapa gambar dibilang bukan TBS?", "Model tidak cukup yakin bahwa gambar tersebut TBS sawit.")]
     for q, ans in faqs:
         with st.expander(q):
             st.write(ans)
-    st.markdown("#### 🧪 Informasi teknis")
-    st.table(pd.DataFrame({"Komponen": ["Arsitektur", "Modul perhatian", "Explainability", "Ukuran input", "Kelas"],
-                           "Keterangan": ["EfficientNet-B4", "CBAM (channel + spatial attention)", "Grad-CAM",
-                                          f"{IMG_SIZE} × {IMG_SIZE} piksel", ", ".join(CLASS_NAMES)]}))
 
 
-{"Beranda": page_home, "Klasifikasi": page_classify, "Evaluasi Model": page_eval,
- "Riwayat": page_history, "Panduan": page_guide}[st.session_state.nav]()
+# =====================================================================
+# 7. EKSEKUSI HALAMAN NAVIGASI
+# =====================================================================
+page_map = {
+    "Beranda": page_home,
+    "Klasifikasi": page_classify,
+    "Evaluasi Model": page_eval,
+    "Riwayat": page_history,
+    "Panduan": page_guide
+}
 
-st.markdown('<div class="footer">© 2026 SawitScan · Penelitian Skripsi Klasifikasi Kematangan TBS Sawit · EfficientNet-B4, CBAM & Grad-CAM</div>',
+page_map[st.session_state.nav]()
+
+st.markdown('<div class="footer">© 2026 SawitScan · Penelitian Skripsi Klasifikasi Kematangan TBS Sawit</div>',
             unsafe_allow_html=True)
