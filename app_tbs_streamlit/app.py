@@ -193,21 +193,18 @@ def build_model():
 
 @st.cache_resource
 def load_tbs_model():
-    # Pastikan file ada DAN ukurannya valid (bukan 0 bytes / file rusak)
-    if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 100_000_000:
-        with st.spinner("📥 Memuat model AI dari cloud storage..."):
+    # Hapus file jika terunduh tidak sempurna / terpotong (< 100 MB)
+    if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) < 100_000_000:
+        os.remove(MODEL_PATH)
+
+    # Unduh file jika belum ada
+    if not os.path.exists(MODEL_PATH):
+        with st.spinner("📥 Memuat model AI dari cloud storage... Sila tunggu sebentar."):
             url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
             try:
-                # Opsi 1: gdown
                 gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
-            except Exception:
-                pass
-
-            # Opsi 2: urllib jika gdown terhalang rate limit
-            if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) < 100_000_000:
-                import urllib.request
-                alt_url = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}&confirm=t"
-                urllib.request.urlretrieve(alt_url, MODEL_PATH)
+            except Exception as e:
+                st.error(f"Gagal mengunduh file model: {e}")
 
     model = build_model()
     model.load_weights(MODEL_PATH)
