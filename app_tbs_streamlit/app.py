@@ -1,8 +1,8 @@
 import gc
-import io
-import os
-import json
 import hashlib
+import io
+import json
+import os
 from datetime import datetime
 
 import altair as alt
@@ -61,7 +61,7 @@ def html(block):
 
 
 # =====================================================================
-# 2. CSS CUSTOM
+# 2. CSS CUSTOM (TEMA ELEGAN SAWITSCAN)
 # =====================================================================
 st.markdown(
     """
@@ -193,11 +193,9 @@ def build_model():
 
 @st.cache_resource
 def load_tbs_model():
-    # Hapus file jika terunduh tidak sempurna / terpotong (< 100 MB)
     if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) < 100_000_000:
         os.remove(MODEL_PATH)
 
-    # Unduh file jika belum ada
     if not os.path.exists(MODEL_PATH):
         with st.spinner("📥 Memuat model AI dari cloud storage... Sila tunggu sebentar."):
             url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
@@ -323,7 +321,6 @@ def render_single(image, name, key, source, model, cfg):
     with st.spinner("🔍 Menganalisis citra..."):
         probs = model.predict(batch, verbose=0)[0]
     
-    # Metrik Deteksi Out of Distribution (OOD)
     sorted_probs = np.sort(probs)[::-1]
     top = float(sorted_probs[0]) * 100
     margin = float(sorted_probs[0] - sorted_probs[1]) * 100
@@ -352,11 +349,11 @@ def render_single(image, name, key, source, model, cfg):
     st.markdown('<div class="sec" style="margin-top:26px">Hasil Prediksi</div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1.1, 1, 1.5])
     c1.markdown(html(f'<div class="panel"><div class="k">Kelas prediksi</div><div class="big">{label}</div>'
-                      f'<span class="chip" style="background:{info["color"]}">Terdeteksi</span></div>'), unsafe_allow_html=True)
+                     f'<span class="chip" style="background:{info["color"]}">Terdeteksi</span></div>'), unsafe_allow_html=True)
     c2.markdown(html(f'<div class="panel"><div class="k">Tingkat kepercayaan</div><div class="big">{conf:.2f}%</div>'
-                      f'<span style="color:#6b7a70;font-size:.82rem">Confidence score</span></div>'), unsafe_allow_html=True)
+                     f'<span style="color:#6b7a70;font-size:.82rem">Confidence score</span></div>'), unsafe_allow_html=True)
     c3.markdown(html(f'<div class="panel"><div class="k">Catatan status</div>'
-                      f'<div style="margin-top:10px;font-weight:600;color:#0f3d2a;line-height:1.5">{info["note"]}</div></div>'),
+                     f'<div style="margin-top:10px;font-weight:600;color:#0f3d2a;line-height:1.5">{info["note"]}</div></div>'),
                 unsafe_allow_html=True)
 
     st.write("")
@@ -376,7 +373,7 @@ def render_single(image, name, key, source, model, cfg):
     d1, d2, _ = st.columns([1, 1, 2])
     try:
         pdf_bytes = build_pdf(name, label, conf, info["note"], probs,
-                              [("Citra asli", np.array(resized)), ("Heatmap", heat_rgb), ("Overlay", over_rgb)])
+                             [("Citra asli", np.array(resized)), ("Heatmap", heat_rgb), ("Overlay", over_rgb)])
         d1.download_button("📄 Unduh Laporan PDF", pdf_bytes, f"Laporan_{label}.pdf", "application/pdf", key=f"pdf-{key}")
     except ImportError:
         d1.caption("Pasang `fpdf2` untuk laporan PDF.")
@@ -396,7 +393,7 @@ def file_key(data):
 # =====================================================================
 hb, hn = st.columns([1, 2.2])
 hb.markdown(html('<div class="brand"><div class="logo">🌴</div><div><b>SawitScan</b>'
-                  '<small>EfficientNet-B4 · CBAM · Grad-CAM</small></div></div>'), unsafe_allow_html=True)
+                 '<small>EfficientNet-B4 · CBAM · Grad-CAM</small></div></div>'), unsafe_allow_html=True)
 hn.radio("Navigasi", PAGES, key="nav", horizontal=True, label_visibility="collapsed")
 st.markdown('<div class="navline"></div>', unsafe_allow_html=True)
 
@@ -511,7 +508,7 @@ def page_classify():
                 else:
                     label, conf = CLASS_NAMES[int(np.argmax(p))], f"{top:.2f}%"
                 rows.append({"No": i + 1, "File": f.name, "Kelas": label, "Kepercayaan (%)": conf,
-                             "Catatan": "; ".join(quality_issues(im)) or "-"})
+                            "Catatan": "; ".join(quality_issues(im)) or "-"})
                 log_history("Batch", f.name, label, None if is_ood else top, file_key(data) + "-batch")
                 bar.progress((i + 1) / len(files), text=f"Memproses {i + 1}/{len(files)}")
             bar.empty()

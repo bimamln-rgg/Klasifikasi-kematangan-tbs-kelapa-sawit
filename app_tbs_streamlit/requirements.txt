@@ -1,12 +1,13 @@
 streamlit
 tensorflow-cpu
 keras
+gdown
 numpy
 pandas
 opencv-python-headless
 pillow
+matplotlib
+seaborn
 altair
-scikit-learn
-fpdf2
 openpyxl
-gdown
+fpdf2
